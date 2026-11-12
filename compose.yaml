@@ -1,0 +1,44 @@
+x-api-environment: &api-environment
+  AXELYN_DATABASE_URL: postgresql+psycopg://axelyn:axelyn@db:5432/axelyn
+  AXELYN_API_KEY: ${AXELYN_API_KEY:?Set AXELYN_API_KEY in .env}
+  AXELYN_TENANT_ID: ${AXELYN_TENANT_ID:-local}
+  AXELYN_EMBEDDING_PROVIDER: ${AXELYN_EMBEDDING_PROVIDER:-demo}
+  AXELYN_EMBEDDING_MODEL: ${AXELYN_EMBEDDING_MODEL:-demo-hash-v1}
+  AXELYN_OLLAMA_URL: ${AXELYN_OLLAMA_URL:-http://host.docker.internal:11434}
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: axelyn
+      POSTGRES_PASSWORD: axelyn
+      POSTGRES_DB: axelyn
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U axelyn -d axelyn]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  init:
+    build: .
+    environment: *api-environment
+    command: [python, -m, axelyn.infrastructure.init_db]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    build: .
+    environment: *api-environment
+    ports: ["127.0.0.1:8000:8000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+volumes:
+  postgres-data:
